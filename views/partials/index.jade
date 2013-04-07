@@ -1,0 +1,12 @@
+.row
+  .small-4.columns.small-centered
+    h3 Visit a room to watch something!
+    h5 Or navigate to reeltime.jit.su/room
+    p You may need to refresh the page for your webcam to be detected.
+    p Currently WebM format videos are supported, more coming soon!
+.row
+  .small-4.columns.small-centered
+    input(type="text", placeholder="Enter a room name.", ng-model="room.name")
+.row
+  .small-4.columns.small-centered
+    a.button.radius(href="/{{room.name}}") Go

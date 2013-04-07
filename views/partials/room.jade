@@ -1,0 +1,18 @@
+.header.row
+  h1 {{room.name}}, {{room.connections}} User{{room.connections > 1 && 's' || '' }}
+  h5 {{room.file && 'Now playing: ' + room.file.name || 'Select a video file to begin.'}}
+
+.container.row
+  .users.group-left
+    .user#me
+    .user#friend
+  video(controls, onplay="RoomCtrl.prototype.play()", onpause="RoomCtrl.prototype.pause()").stream-main
+  .info.group-right(style="background:{{room.imdb.img && 'url(' + room.imdb.img + ')' || '#111'}};background-size:cover;")
+    .info-container(ng-show="room.imdb")
+      h5(style="color:#888") {{room.imdb.title}}
+      p Rating: {{room.imdb.rating}}/10
+
+.footer.row
+  input#file(type="file", accept="video/*", onchange="RoomCtrl.prototype.setFile(this)")
+  a.button#file-button(ng-click="RoomCtrl.handleUploadClick()") Choose File
+  a.button#play(ng-click="RoomCtrl.sendFile()") Stream File

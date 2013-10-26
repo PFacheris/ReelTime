@@ -2,8 +2,12 @@
 * Requires and initialization.
 */
 //Dependencies
-var http = require('http'),
-    express = require('express');
+var http    = require('http'),
+    express = require('express'),
+    path    = require('path'),
+    fs      = require('fs'),
+    exec    = require('child_process').exec,
+    spawn   = require('child_process').spawn;
 
 var app = express();
 var application_root = process.cwd();
@@ -16,6 +20,8 @@ var port = process.env.PORT || 5000,
         console.log("Listening on port: " + port);
     }),
     io = require('socket.io').listen(server, { log: false });
+
+var ss = require('socket.io-stream');
 
 /*
 * Application Logic
@@ -62,6 +68,38 @@ io.sockets.on('connection', function (socket) {
 
   socket.on('media:seeked', function(data) {
     io.sockets.in(data.room.name).emit('media:seeked', data.time);
+  });
+
+  ss(socket).on('media:stream', function(stream, data) {
+    if(data.type != "video/webm")
+    {
+      var args = ["-i", "pipe:0", "-vcodec", "libvpx", "-vb", "250k", "-keyint_min", "150", "-g", "150", "-an", "-sn", "-f", "webm", "pipe:1"];
+      var ffmpegProc = spawn("ffmpeg", args, {cwd: __dirname + "/temp/"});
+      stream.pipe(ffmpegProc.stdin);
+
+      // Handle Errors
+      stream.on('error', ffmpegProc.kill);
+      ffmpegProc.on("uncaughtException", ffmpegProc.kill);
+      ffmpegProc.on("SIGINT", ffmpegProc.kill);
+      ffmpegProc.on("SIGTERM", ffmpegProc.kill);
+
+      ffmpegProc.stderr.on('data', function (data) {
+        console.log('stderr: ' + data);
+      });
+
+      // Handle Data
+      ffmpegProc.stdout.on('data', function(chunk) {
+        io.sockets.in(data.name).emit('media:chunk', chunk);
+      });
+        
+    }
+    else
+    {
+        stream.on('data', function(chunk) {
+          io.sockets.in(data.name).emit('media:chunk', chunk);
+        });
+    }
+
   });
 
   socket.on('media:chunk', function(data) {

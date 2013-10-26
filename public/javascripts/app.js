@@ -1,27 +1,27 @@
 var app = angular.module('movieApp', []);
 
 app.factory('RTCVideo', function() {
-	var connection = new RTCMultiConnection();
-	connection.session = 'audio + video';
+  var connection = new RTCMultiConnection();
+  connection.session = 'audio + video';
 
-	return {
-		start: function(room) {
-			if(room.connections === 1)
-	        	connection.open(room.name);
-	        else
-	        	connection.connect(room.name);
+  return {
+    start: function(room) {
+      if(room.connections === 1)
+            connection.open(room.name);
+          else
+            connection.connect(room.name);
 
-	        connection.onstream = function (stream) {
-	            if (stream.type === 'local') {
-	                $('#me').append(stream.mediaElement);
-	            }
+          connection.onstream = function (stream) {
+              if (stream.type === 'local') {
+                  $('#me').append(stream.mediaElement);
+              }
 
-	            if (stream.type === 'remote') {
-	                $('#friend').append(stream.mediaElement);
-	            }
-	        }
-		}
-	}
+              if (stream.type === 'remote') {
+                  $('#friend').append(stream.mediaElement);
+              }
+          }
+    }
+  }
 });
 
 app.factory('Socket', function ($rootScope) {
@@ -44,7 +44,33 @@ app.factory('Socket', function ($rootScope) {
           }
         });
       })
-    }
+    },
+    socket: socket
+  };
+});
+
+app.factory('SocketStream', function ($rootScope, Socket) {
+  return {
+    on: function (eventName, stream, callback) {
+      ss(Socket.socket).on(eventName, stream, function () {  
+        var args = arguments;
+        $rootScope.$apply(function () {
+          callback.apply(Socket.socket, args);
+        });
+      });
+    },
+    emit: function (eventName, stream, data, callback) {
+      ss(Socket.socket).emit(eventName, stream, data, function () {
+        var args = arguments;
+        $rootScope.$apply(function () {
+          if (callback) {
+            callback.apply(Socket.socket, args);
+          }
+        });
+      })
+    },
+    createBlobReadStream: ss.createBlobReadStream,
+    createStream: ss.createStream
   };
 });
 
@@ -54,147 +80,138 @@ app.config(['$routeProvider', '$locationProvider', function($routeProvider, $loc
   $locationProvider.html5Mode(true);
 }]);
 
-function RoomCtrl($scope, $routeParams, $location, $timeout, RTCVideo, Socket) {
-	RoomCtrl.prototype.$scope = $scope;
-	RoomCtrl.prototype.Socket = Socket;
-	this.init = function() {
-		$scope.room = $routeParams;
-		if (window.File && window.FileReader && window.FileList && window.Blob) {
-			Socket.emit('join', $scope.room, function(room) {
-				$scope.room = room;	
-				RTCVideo.start($scope.room);
-			});
+function RoomCtrl($scope, $routeParams, $location, $timeout, RTCVideo, Socket, SocketStream) {
+  RoomCtrl.prototype.$scope = $scope;
+  RoomCtrl.prototype.Socket = Socket;
+  this.init = function() {
+    $scope.room = $routeParams;
+    if (window.File && window.FileReader && window.FileList && window.Blob) {
+      Socket.emit('join', $scope.room, function(room) {
+        $scope.room = room;  
+        RTCVideo.start($scope.room);
+      });
 
-			Socket.on('media:select', function(room) {
-				$scope.room = room;
-				$('#play').addClass('disabled');
-				$('#file-button').addClass('disabled');
-			});
+      Socket.on('media:select', function(room) {
+        $scope.room = room;
+        $('#play').addClass('disabled');
+        $('#file-button').addClass('disabled');
+      });
 
-			Socket.on('media:play', function() {
-				$('.stream-main')[0].play();
-			});
+      Socket.on('media:play', function() {
+        $('.stream-main')[0].play();
+      });
 
-			Socket.on('media:pause', function() {
-				$('.stream-main')[0].pause();
-			});
+      Socket.on('media:pause', function() {
+        $('.stream-main')[0].pause();
+      });
 
-			Socket.on('media:seeked', function(time) {
-				if($('.stream-main')[0].currentTime != time)
-					$('.stream-main')[0].currentTime = time;
-			});
+      Socket.on('media:seeked', function(time) {
+        if($('.stream-main')[0].currentTime != time)
+          $('.stream-main')[0].currentTime = time;
+      });
 
-			Socket.on('user:joined', function(room){
-				$scope.room = room;
-			});
+      Socket.on('user:joined', function(room){
+        $scope.room = room;
+      });
 
-			$timeout(loadMediaSource, 500)
-			function loadMediaSource() {
-				var video = $('.stream-main')[0];
+      $timeout(loadMediaSource, 500)
+      function loadMediaSource() {
+        var video = $('.stream-main')[0];
 
-				window.MediaSource = window.MediaSource || window.WebKitMediaSource;
-				if (!!!window.MediaSource) {
-				  alert('MediaSource API is not available');
-				}
-				var mediaSource = new MediaSource();
+        window.MediaSource = window.MediaSource || window.WebKitMediaSource;
 
-				video.src = window.URL.createObjectURL(mediaSource);
+        if (!!!window.MediaSource) {
+          alert('MediaSource API is not available');
+        }
 
-				mediaSource.addEventListener('webkitsourceopen', function(e) {
-				  	var sourceBuffer = mediaSource.addSourceBuffer('video/webm; codecs="vorbis,vp8"');
+        var mediaSource = new MediaSource();
 
-					Socket.on('media:chunk', function(data) {
-						sourceBuffer.append(new Uint8Array(data.data));
-					});		  	
-				}, false);
+        video.src = window.URL.createObjectURL(mediaSource);
 
-				video.addEventListener('seeked', function (e) {
-					Socket.emit('media:seeked', {room: {name: $scope.room.name}, time: video.currentTime})
-				});
-			}
-			
+        mediaSource.addEventListener('sourceopen', function(e) {
+          var sourceBuffer = mediaSource.addSourceBuffer('video/webm; codecs="vorbis,vp8"');
 
-		} 
-		else {
-  			alert('This browser is not supported. Please use the latest versions of Chrome or Firefox.');
-  			$location.path("/");
-		}
-	}
+          sourceBuffer.addEventListener('updatestart', function(e) {
+            console.log(e);
+          }, false);
 
-	this.handleUploadClick = function() {
-		$('#file').click();
-	}
 
-	this.sendFile = function() {
-		if($scope.room.file)
-		{
-			//const NUM_CHUNKS = 1000;
-			Socket.emit('media:start', $scope.room);
-			var chunkSize = 4096;//Math.ceil($scope.room.file.size / NUM_CHUNKS);
-			const NUM_CHUNKS = Math.ceil($scope.room.file.size/ chunkSize);
-		    // Slice the video into NUM_CHUNKS and append each to the media element.
-		    var i = 0;
+          (function(sb) {
+            Socket.on('media:chunk', function(data) {
+              sb.appendBuffer(new Uint8Array(data));
+            });
+          })(sourceBuffer);       
+        }, false);
 
-		    (function readChunk_(i) {
-		      var reader = new FileReader();
+        video.addEventListener('seeked', function (e) {
+          Socket.emit('media:seeked', {room: {name: $scope.room.name}, time: video.currentTime})
+        });
+      }
+      
 
-		      // Reads aren't guaranteed to finish in the same order they're started in,
-		      // so we need to read + append the next chunk after the previous reader
-		      // is done (onload is fired).
-		      reader.onload = function(e) {
-		        var data = {
-					    "data" : new Uint8Array(e.target.result),
-					    "sequence" : i,
-					    "name": $scope.room.name
-					};
-			        Socket.emit("media:chunk", data);
-		      };
+    } 
+    else {
+        alert('This browser is not supported. Please use the latest versions of Chrome or Firefox.');
+        $location.path("/");
+    }
+  }
 
-		      var startByte = chunkSize * i;
-		      var chunk = $scope.room.file.slice(startByte, startByte + chunkSize);
+  this.handleUploadClick = function() {
+    $('#file').click();
+  }
 
-		      reader.readAsArrayBuffer(chunk);
-		      if (i != NUM_CHUNKS - 1)
-			  	readChunk_(++i);
-		    })(i);
-		}
-		else
-			alert('Select a file.');
-	}
+  this.sendFile = function() {
+    if($scope.room.file)
+    {
+      Socket.emit('media:start', $scope.room);
+      var stream = SocketStream.createStream();
+      var data = {
+        name: $scope.room.name,
+        type: $scope.room.file.type
+      }
+      SocketStream.emit('media:stream', stream, data);
+      SocketStream.createBlobReadStream($scope.room.file).pipe(stream);
+    }
+    else
+      alert('Select a file.');
+  }
 
-	this.init();
+  this.init();
 
-	$scope.RoomCtrl = this
+  $scope.RoomCtrl = this
 }
 
 RoomCtrl.prototype.setFile = function(element) {
     var $scope = this.$scope;
     var file = element.files[0];
-    if (file.type.match('.webm'))
+    if (file.type == "video/quicktime")
     {
-	    $scope.$apply(function() {
-	        $scope.room.file = file;
-	        $.getJSON('http://imdbapi.org/?q=' + file.name.substring(0, file.name.indexOf('.')), function(data, status)
-	        {
-	        	$scope.room.imdb = {};
-	        	$scope.room.imdb.title = data[0].title;
-	        	$scope.room.imdb.rating = data[0].rating;
-	        	$scope.room.imdb.img = data[0].poster;
-	        });
-	    });
-	}
-	else
-		alert('Invalid File Type, WebM support only.')
+      alert("Unfortunately, .mov files are not suppported at this time.");
+    }
+    else
+    {
+      $scope.$apply(function() {
+        $scope.room.file = file;
+        $.getJSON('http://imdbapi.org/?q=' + file.name.substring(0, file.name.indexOf('.')), function(data, status)
+        {
+          $scope.room.imdb = {};
+          $scope.room.imdb.title = data[0].title;
+          $scope.room.imdb.rating = data[0].rating;
+          $scope.room.imdb.img = data[0].poster;
+        });
+      });
+    }
+    
 };
 
 RoomCtrl.prototype.pause = function() {
-	var $scope = this.$scope;
-	var Socket = this.Socket;
+  var $scope = this.$scope;
+  var Socket = this.Socket;
     Socket.emit('media:pause', $scope.room);
 };
 
 RoomCtrl.prototype.play = function() {
-	var $scope = this.$scope;
-	var Socket = this.Socket;
+  var $scope = this.$scope;
+  var Socket = this.Socket;
     Socket.emit('media:play', $scope.room);
 };

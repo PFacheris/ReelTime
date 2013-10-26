@@ -13,6 +13,6 @@
       p Rating: {{room.imdb.rating}}/10
 
 .footer.row
-  input#file(type="file", accept="video/*", onchange="RoomCtrl.prototype.setFile(this)")
+  input#file(type="file", onchange="RoomCtrl.prototype.setFile(this)")
   a.button#file-button(ng-click="RoomCtrl.handleUploadClick()") Choose File
   a.button#play(ng-click="RoomCtrl.sendFile()") Stream File
